@@ -14,39 +14,41 @@ struct DataRange
 };
 struct LifeArgs
 {
-    int steps;
-    LifeBoard &evenState, &oddState;
+    int *steps;
+    LifeBoard *evenState, *oddState;
     std::vector<Position> dr;
     pthread_barrier_t *barrier;
+    int id;
 };
 
 void *RunLife(void *args) {
-    printf("starting RunLife \n");
     struct LifeArgs *myArgs;
     myArgs = (struct LifeArgs *) args;
-    int steps = myArgs->steps;
-    LifeBoard evenState = myArgs->evenState;
-    LifeBoard oddState = myArgs->oddState;
+    int steps = *myArgs->steps;
+    LifeBoard *evenState = myArgs->evenState;
+    LifeBoard *oddState = myArgs->oddState;
     std::vector<Position> dr = myArgs->dr;
     pthread_barrier_t *barrier = myArgs->barrier;
+    // int id = myArgs->id;
 
-    for(int step = 0; step < steps; ++step) {
+    // printf("starting RunLife for thread %d\n", id);
+
+    for(int step = 0; step < steps; step++) {
         int x, y;
-        bool state_is_even = step %2;
-        LifeBoard *state;
-        LifeBoard *next_state;
+        bool state_is_even = (step % 2 == 0);
+        struct LifeBoard *state;
+        struct LifeBoard *next_state;
         if(state_is_even) {
-            state = &evenState;
-            next_state = &oddState;
+            state = evenState;
+            next_state = oddState;
         } else {
-            state = &oddState;
-            next_state = &evenState;
+            state = oddState;
+            next_state = evenState;
         }
         for(Position p : dr) {
             int live_in_window = 0;
             x = p.x;
             y = p.y;
-            printf("(%d, %d)\n",x,y);
             /* For each cell, examine a 3x3 "window" of cells around it,
              * and count the number of live (true) cells in the window. */
             for (int y_offset = -1; y_offset <= 1; ++y_offset) {
@@ -64,9 +66,12 @@ void *RunLife(void *args) {
             );
 
         }
+        // printf("thread %d started waiting on barrier\n", id);
         pthread_barrier_wait(barrier);
+        // printf("thread %d finished waiting on barrier\n", id);
     }
-    return NULL;
+    // printf("finishedRunLife for thread %d\n", id);
+    return ((void*) NULL);
 }
 
 std::vector<DataRange> divideBoard(int threads, LifeBoard &state) {
@@ -74,6 +79,8 @@ std::vector<DataRange> divideBoard(int threads, LifeBoard &state) {
     h = state.height() - 2;
     w = state.width() - 2;
     int total_cells = h * w;
+    // handle the case in which there are more threads than cells
+    if (total_cells < threads) threads = total_cells;
     int cells_per_thread = total_cells/threads;
     int cells_left_over = total_cells%threads;
 
@@ -115,34 +122,61 @@ std::vector<DataRange> divideBoard(int threads, LifeBoard &state) {
     return threadRanges;
 }
 
+
 void simulate_life_parallel(int threads, LifeBoard &state, int steps) {
     /* YOUR CODE HERE */
     LifeBoard oddState{state.width(), state.height()};
 
-    std::vector<pthread_t> all_threads;
     int rc, t;
 
     // Make the Barrier
     pthread_barrier_t barrier;
     pthread_barrier_init(&barrier, NULL, threads);
 
+    // Divide the array into chunks for each thread to work on
     std::vector<DataRange> drs = divideBoard(threads, state);
-    for(t = 0; t < threads; t++) {
+    // Account for case where there are more threads than cells
+    threads = drs.size();
+
+    // Make a vector of args so args do not go out of scope
+    // Make a vector of threads for the same reason
+    std::vector<LifeArgs> argList;
+    std::vector<pthread_t> all_threads;
+    for(t = 0; t < threads; ++t) {
         DataRange dr = drs[t];
-        LifeArgs args = {steps, state, oddState, dr.indeces, &barrier};
+        struct LifeArgs args = {&steps, &state, &oddState, dr.indeces, &barrier, t};
+        argList.push_back(args);
         pthread_t thread = 0;
-        rc = pthread_create(&thread, NULL, RunLife, &args);
+        all_threads.push_back(thread);
+        // printf("thread %d has been assigned %ld cells\n", t, dr.indeces.size());
+    }
+
+    for(t = 0; t < threads; ++t) {
+
+        rc = pthread_create(&all_threads.at(t), NULL, RunLife, &argList.at(t));
         if (rc){
           printf("ERROR; return code from pthread_create() is %d\n", rc);
           exit(-1);
         }
-        all_threads.push_back(thread);
         // printf("made it through the for loop %d times\n", t);
 
     }
-    pthread_barrier_destroy(&barrier);
+    // Join all of the threads that have been created
     for (pthread_t thread : all_threads) {
-        pthread_cancel(thread);
-        pthread_join(thread, NULL);
+        // printf("started joining %p \n", (void*)&thread);
+        rc = pthread_join(thread, NULL);
+        // printf("finished joining %p \n", (void*)&thread);
+        if (rc) {
+            printf("ERROR; return code from pthread_join() is %d\n", rc);
+            exit(-1);
+        }
+    }
+    // Destroy the barrier
+    pthread_barrier_destroy(&barrier);
+
+    // Determine if evenState or oddState should be returned
+    bool steps_is_odd = (steps % 2 == 1);
+    if(steps_is_odd){
+        swap(state, oddState);
     }
 }
