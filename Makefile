@@ -1,5 +1,5 @@
 CXX=g++
-CXXFLAGS=-std=c++17 -g  -pthread -Wall -Werror -pedantic #-O3
+CXXFLAGS=-std=c++17 -g  -pthread -Wall -Werror -pedantic -O3
 # ASAN = Address SANitizer, see https://github.com/google/sanitizers/wiki/AddressSanitizer
 CXXFLAGS_ASAN=-std=c++17 -g -Og -pthread -fsanitize=address -Wall -Werror -pedantic -D_GLIBCXX_DEBUG
 # TSAN = Thread SANitizer, see https://github.com/google/sanitizers/wiki/ThreadSanitizer
